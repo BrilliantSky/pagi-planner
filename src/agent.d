@@ -122,7 +122,6 @@ struct StateActions
 	const(Action)[] actions;
 }
 
-import graph;
 import std.algorithm;
 
 class TaskBot : pagi.Agent
