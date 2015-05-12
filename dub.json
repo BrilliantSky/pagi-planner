@@ -4,6 +4,6 @@
 	"license": "GPL-2.0",
 	"targetType": "executable",
 	"dependencies": {
-		"dPAGI": "*",
+		"dpagi": "~master",
 	},
 }
