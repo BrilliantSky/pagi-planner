@@ -1,0 +1,9 @@
+{
+	"name": "pagi-planner",
+	"description": "PAGI World action-based learning and planning system using a directed state graph",
+	"license": "GPL-2.0",
+	"targetType": "executable",
+	"dependencies": {
+		"dPAGI": "*",
+	},
+}
