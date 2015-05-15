@@ -30,8 +30,9 @@ public:
 		}
 		mId = sID++;
 	}
-	@property bool solution() const { return false; } //mExtraState==uint.max; }
+	@property bool solution() const { return false; }
 
+	/// Pick an action with the fewest attempts
 	const(A) pickAction(Pred)() const
 	{
 		// Try picking the action with the least attempts (Curiosity)
@@ -39,22 +40,18 @@ public:
 		auto p = Rebindable!(const(A))(null);
 		foreach(a,t; mTransitions)
 		{
-			//auto stability = t.stability();//+uniform(-10,10)/100.0f;
-			//writefln("Stability for action %s: %s --> %s", a, t.stability, stability);
 			if( t.attempts < best )
 			{
-				//writefln("%s (%s) is better than %s (%s)", a, t.attempts, p ? to!string(p) : "null", best);
 				best = t.attempts;
 				p = a;
 			}
-			//else
-			//	writefln("%s (%s) is NOT better than %s (%s)", a, t.attempts, p ? to!string(p) : "null", best);
 		}
 		if( p )
 			writefln("Choose action %s", p);
 		return p;
 
 	}
+	/// Update or add a transition to the state with the given action.
 	void feedback(const(A) action, StateNode sn)
 	{
 		writefln("Feedback for state %s, action %s", this, action);
@@ -75,11 +72,6 @@ public:
 
 	bool opEquals(const(StateNode) sn) const pure
 	{
-		//if( mTransitions.length != sn.mTransitions.length )
-		//	return false;
-		//foreach(a,t; mTransitions)
-		//	if( a !in sn.mTransitions )
-		//		return false;
 		return mPerceivedState == sn.mPerceivedState;
 	}
 	override string toString() const pure { return "State"~to!string(mId); }
@@ -94,7 +86,7 @@ class Transition(State)
 {
 	struct Result
 	{
-		uint count;
+		uint count; /// How many times it occurred.
 
 		/+@property float probability() const
 		{
@@ -104,10 +96,11 @@ class Transition(State)
 		}+/
 	}
 
-	Result[const(State)] mPossibleOutcomes;
-	uint mNumTries;
+	Result[const(State)] mPossibleOutcomes; /// Outcomes, indexed by resulting state (useful for planning)
+	uint mNumTries; /// Total attempts on this transition
 
 public:
+	/// Probability of this particular result.
 	float probability(in Result r) pure const @safe nothrow {
 		assert(mNumTries > 0);
 		return cast(float)r.count / mNumTries;
@@ -123,19 +116,21 @@ public:
 		mNumTries = 1;
 	}
 
+	/// Find the highest probability of any outcome.
 	float stability() const
 	{
-		//return reduce!"(p,r) => max(p, r.probability)"( 0.0, mPossibleOutcomes.byValue() );
 		float maxprob(float p, in ref Result r) { return max(p, probability(r)); }
 		return reduce!maxprob( 0.0f, mPossibleOutcomes.byValue() );
 	}
 
+	/// Get the probability of the given state.
 	float probability(in State outcome) const pure
 	{
 		auto p = outcome in mPossibleOutcomes;
 		return !p ? 0.0 : cast(float)p.count / mNumTries;
 	}
 
+	/// Record the outcome by incrementing it's occurrence count.
 	void recordResult(const State result)
 	{
 		writeln("RecordResult");

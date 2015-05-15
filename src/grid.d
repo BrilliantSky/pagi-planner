@@ -6,6 +6,16 @@ struct Pos2(D)
 	D x,y;
 }
 
+/// Contains position and boolean valid flag.
+///
+/// Can be cast to bool as in:
+///---
+/// if( result ) ...
+///---
+/// Or used as a Pos2:
+///---
+/// setTargetPos( result );
+///---
 struct CentroidResult
 {
 	bool valid=false;
@@ -16,9 +26,10 @@ struct CentroidResult
 	alias pos this;
 }
 
-// Find the centroid of something in a 2D array.
-// Object is present if m(cell) returns true.
-// Return value is castable to bool and Pos2!float.
+/// Find the centroid of something in a 2D array.
+///
+/// Object is present if m(cell) returns true.
+/// Return value is castable to bool and Pos2!float.
 CentroidResult findCentroid(G,M)(in G grid, M m)
 {
 	alias T = typeof(grid[0][0]);
@@ -43,6 +54,10 @@ CentroidResult findCentroid(G,M)(in G grid, M m)
 	// Didn't find any matches
 	return CentroidResult(false);
 }
+
+/// Find the centroid of something in a 2D array, given a start position.
+///
+/// Object is present at a location if m(cell) returns true.
 CentroidResult findCentroidAt(G,M,D)(in G grid, M m, Pos2!D start)
 {
 	uint[Pos2!D] visited;

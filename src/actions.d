@@ -9,6 +9,9 @@ import agent;
 //template actions(TaskBot)
 //{
 
+/// PAGI Guy action interface.
+///
+/// All actions inherit this interface.
 const interface Action
 {
 	abstract bool execute(TaskBot agent) const;
@@ -19,6 +22,8 @@ const interface Action
 	//static uint nextType() @property @safe { return nextActionType++; }
 	abstract string toString() const pure;
 }
+
+/// Helper code implementing opEquals.
 template ActionHelper()
 {
 	//static immutable uint Type = Action.nextType();
@@ -45,6 +50,7 @@ template ActionHelper()
 	}+/
 }
 
+/// Combines multiple actions into one.
 const class CompoundAction : Action
 {
 	Action[] mActions;

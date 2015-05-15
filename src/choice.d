@@ -91,7 +91,7 @@ const(A) pickUnknownAction(S,A)(in StateNode!(S,A) sn)
 
 import std.container.dlist;
 
-// Plans actions ahead of time
+/// Plans actions ahead of time
 final class ActionPlanner(S,A)
 {
 	alias const StateNode!(S,A) SN;
@@ -105,28 +105,35 @@ final class ActionPlanner(S,A)
 	PlannedAction[SN] mActions;
 	Rebindable!SN mPrevState;
 
+	/// Pick the next action.
+	///
+	/// There are 3 cases:
+	/// Case 1 - Current state is not part of the plan
 	const(A) nextPlannedAction(SN rootState)
 	{
 		scope(exit)
 		{
 			mPrevState = rootState;
 		}
+		// Current state in plan?
 		auto p = rootState in mActions;
 		if( p )
 		{
+			// If this state is not the previous state, go according to the plan
 			if( !mPrevState || rootState != mPrevState )
 			{
 				return p.action;
 			}
-			else
+			else // Otherwise PAGI Guy is stuck, so pick a new action
 			{
 				writeln("Repeat state!!!");
 				return pickUnknownAction!(S,A)(rootState);
 			}
 		}
-		else
+		else // This state is not in the plan anywhere
 			writeln("Unprocessed state!!!");
 
+		/// Temporary class used for pathfinding in the graph
 		class PathNode
 		{
 			SN state; // State Node
@@ -156,6 +163,11 @@ final class ActionPlanner(S,A)
 				return false;
 			}
 		}
+		/// Propagate the solution back along the chain
+		///
+		/// Stop if a node has a higher total path probability,
+		/// as this means that a better path was already found.
+		/// Keep this path too though in case something goes wrong.
 		void backPropagate(PathNode pn)
 		{
 			float prob = pn.probability;
@@ -244,6 +256,7 @@ final class ActionPlanner(S,A)
 				}
 			}
 		}
+		// Look up the current state in the plan
 		p = rootState in mActions;
 		if( p )
 		{

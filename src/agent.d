@@ -43,6 +43,8 @@ public:
 		return mObject == other.mObject;
 	}
 }
+
+/// Grab an object
 const class GrabAction : Action
 {
 	mixin ObjectAction;
@@ -53,6 +55,7 @@ const class GrabAction : Action
 	}
 	override string toString() const pure { return "Grab "~mObject; }
 }
+/// Touch an object
 const class TouchAction : actions.actions.Action
 {
 	mixin ObjectAction;
@@ -63,7 +66,7 @@ const class TouchAction : actions.actions.Action
 	}
 	override string toString() const pure { return "Touch "~mObject; }
 }
-
+/// Drop whatever is being held
 const class DropAction : Action
 {
 	bool execute(TaskBot agent) const
@@ -79,6 +82,7 @@ const class DropAction : Action
 	}
 	override string toString() const pure { return "Drop"; }
 }
+/// Jump a few units
 const class JumpAction : Action
 {
 	bool execute(TaskBot agent) const
@@ -94,7 +98,13 @@ const class JumpAction : Action
 	override string toString() const pure { return "Jump"; }
 }
 
-
+/// The perceived state of the world.
+///
+/// This class represents the world as PAGI Guy can see it.
+/// Each unique, visible object is stored along with which side it is on.
+/// If PAGI Guy is holding something, a flag is set to true.
+/// If it is a goal state, everything else is irrelevant.
+/// Goal states are only equal to other goal states.
 struct PerceivedState
 {
 	bool holding;
@@ -116,6 +126,7 @@ struct PerceivedState
 		return ps.holding==holding && ps.objects==objects;
 	}
 }
+/// Combined world state and actions, used by TaskBot.PerceiveWorld().
 struct StateActions
 {
 	PerceivedState state;
@@ -124,15 +135,22 @@ struct StateActions
 
 import std.algorithm;
 
+/// Integrates planning algorithms with PAGI World.
+///
+/// This class represents PAGI Guy. It is responsible
+/// for his actions and provides the interface to the
+/// planning system.
 class TaskBot : pagi.Agent
 {
-	bool ateApple;
-	string mTaskName;
+	bool ateApple; /// Determines if food was just eaten
 
-	DetailedVisionArray mDetailedVision;
-	PeripheralVisionArray mPeripheralVision;
-	uint mVisionUpdated;
+	DetailedVisionArray mDetailedVision;     /// Vision array
+	PeripheralVisionArray mPeripheralVision; /// Ditto
+	uint mVisionUpdated; /// What (if any) vision has been updated
 
+	/// Hack to hold objects in air when being held.
+	///
+	/// Inserts applyHandForce() calls before polling.
 	override bool poll()
 	{
 		if( mHoldingObject.length > 0 )
@@ -143,23 +161,24 @@ class TaskBot : pagi.Agent
 		return super.poll();
 	}
 
-	// Called when endorphins are received.
+	/// Called when endorphins are received.
 	override void endorphinEvent(float amount, uint location)
 	{
 		ateApple |= (amount > 0);
 	}
-	// Called when detailed vision updated. Copies data to array for later processing.
+	/// Called when detailed vision updated. Copies data to array for later processing.
 	override void visionUpdateDetailed(in DetailedVisionArray sensors)
 	{
 		mDetailedVision = sensors;
 		mVisionUpdated = 1;
 	}
-	// Called when detailed vision updated. Copies data to array for later processing.
+	/// Called when detailed vision updated. Copies data to array for later processing.
 	override void visionUpdatePeripheral(in PeripheralVisionArray sensors)
 	{
 		mPeripheralVision = sensors;
 		mVisionUpdated = 2;
 	}
+	/// Request vision update and wait for it to finish
 	void updateVision()
 	{
 		writeln("UpdateVision");
@@ -170,7 +189,7 @@ class TaskBot : pagi.Agent
 			poll();
 		} while(!mVisionUpdated);
 	}
-	// Find the center of mass of a visible object
+	/// Find the center of mass of a visible object
 	auto findObjectCenterCoordsDetailed(in char[] target)
 	{
 		bool sameObj(in char[] obj) { return obj==target; }
@@ -182,34 +201,51 @@ class TaskBot : pagi.Agent
 	}
 
 
-
+	/// The object being held ("" for none)
 	string mHoldingObject;
 
-
+	/// Grab $(PARAM obj) at location ($(PARAM x), $(PARAM y)).
+	///
+	/// Turns horizontally towards the object and moves to within 4 units of it.
+	/// Uses detailed vision to move hand onto it and grab it.
+	/// Returns true if successful. Rotation is reset when finished.
+	/// May time out if the object cannot be reached or grabbed.
 	bool grabObjectAt(in char[] obj, float x, float y)
 	{
 		writefln("Grab Object @ %s %s", x, y);
+
+		// Start a timer to avoid getting stuck
 		SysTime startTime = Clock.currTime();
+
+		// Rotate towards object
 		bool left = mBody.posX > x;
 		setRotation(left ? 90 : -90);
+
+		// Always return to UP when done (except if an error occurs)
 		scope(success)
 		{
 			setRotation(0);
 		}
+
+		// Move toward the object until 4 units away
 		while(abs(mBody.posX - x) > 4)
 		{
+			// Check timer
 			if( Clock.currTime() - startTime > dur!"seconds"(10) )
 				return false;
 			poll();
 			applyBodyForce(16000, true);
 			//writefln("Grab Object - move (%s --> %s)", mBody.posX, x);
 		}
+		// Opposite hand!
 		Hand *hand = !left ? &mLeftHand : &mRightHand;
 		do
 		{
+			// Check timer
 			if( Clock.currTime() - startTime > dur!"seconds"(15) )
 				return false;
 
+			// Update detailed vision, hand pos, and hand sensors
 			mVisionUpdated = 0;
 			requestDetailedVisionUpdate();
 			requestHandPosUpdate(!left);
@@ -217,22 +253,31 @@ class TaskBot : pagi.Agent
 			poll();
 			while(!mVisionUpdated) {}
 
+			// Update object location (center of object as seen by detailed vision)
 			auto result = findObjectCenterCoordsDetailed(obj);
 			if( !result )
 				return false;
 			x = result.x;
 			y = result.y;
 
+			// Move hand towards apparent center of object
 			applyHandForce( (x-hand.posX)*40, (y-hand.posY)*40, !left );
+
 			//writefln("Grab Object - grab(%s,%s) [%s %s]", x,y, hand.posX, hand.posY);
 
+		// Run until hand is touching the object, or within 0.5 units
 		} while( !hand.sensors[0].p || abs(hand.posX-x) > 0.5 || abs(hand.posY-y) > 0.5 );
 
+		// Grab the object, set the holding variable, and return true
 		setGrip(!left);
 		mHoldingObject = obj.idup;
 		writeln("Gripping");
 		return true;
 	}
+	/// Move to location x,y.
+	///
+	/// May time out.
+	/// TODO: make timeout relative to distance
 	bool moveTo(float x, float y)
 	{
 		SysTime startTime = Clock.currTime();
@@ -247,61 +292,82 @@ class TaskBot : pagi.Agent
 		}
 		return true;
 	}
+	/// Drop any object(s) being held.
 	bool releaseObject()
 	{
 		writeln("Release");
 		releaseGrip(false);
 		releaseGrip(true);
 		mHoldingObject = "";
-		for(uint i=0; i<10; i++) poll();
+		for(uint i=0; i<10; i++) poll(); // delay
 		return true;
 	}
+	/// Jump straight up into the air (small).
 	bool jump()
 	{
 		writeln("Jump");
 		applyBodyForce(45000, true);
-		for(uint i=0; i<10; i++) poll();
+		for(uint i=0; i<10; i++) poll(); // delay
 		return true;
 	}
 
 protected:
 
-
+	/// Perceive the world and generate actions.
+	///
+	/// Update peripheral vision and find all unique objects.
+	/// Creates a PerceivedState representation and generates
+	/// a list of actions that may be performed.
+	/// Actions must be generated here because the location is needed.
+	/// TODO: Decouple actions from perceiveWorld().
 	StateActions perceiveWorld() const
 	{
+		updateVision();
+
 		writeln("PerceiveWorld()");
 		if( ateApple )
 			return StateActions(PerceivedState(false,true), []);
 
-		auto state = PerceivedState();
+		auto state = PerceivedState(); // PerceivedState object
+		const(Action)[] actions; // List of actions
 
-		const(Action)[] actions;
+		// Helper function to create actions
 		void addAction(A, Args...)(Args args)
 		{
 			actions ~= new const A(args);
 		}
 
 
+		// If holding, add holding object and set state flag
 		state.holding = (mHoldingObject.length > 0);
 		if( mHoldingObject.length > 0 )
 			addAction!DropAction();
 
+		// Can always jump
 		addAction!JumpAction();
 
-		foreach(j, ref row; mPeripheralVision)
+		foreach(j, ref row; mPeripheralVision)	// Each row, bottom to top
 		{
-			foreach(i, cell; row)
+			foreach(i, cell; row) // Each cell of the row, left to right
 			{
+				// Empty cell or not unique?
 				if( cell.length == 0 || cell in state.objects )
 					continue;
+
+				// Determine which side (T/F) and add to state
 				state.objects[cell] = i > row.length/2;
 
+				// Helper function if objects are the same
 				bool sameObj(in const(char)[] obj) { return obj == cell; }
-				assert(sameObj(mPeripheralVision[j][i]));
+				//assert(sameObj(mPeripheralVision[j][i]));
+				// Find the centroid if it overlaps multiple cells
 				auto center = findCentroidAt(mPeripheralVision, &sameObj, Pos2!uint(cast(uint)i,cast(uint)j));
 
+				// Compute coordinate positions from vision space (Bugged?)
 				float x = 2.0*(center.x - 7) - 0.5 + mBody.posX;
 				float y = 0.667*center.y + mBody.posY;
+
+				// Add actions based on object type
 				switch(cell)
 				{
 				case "redWall": goto case;
@@ -328,15 +394,17 @@ protected:
 				case "poison":
 					addAction!TouchAction(cell.idup, x,y);
 					//if( mHoldingObject.length == 0 )
-					//	addAction!GrabAction(cell.idup, x,y);
+					//	addAction!GrabAction(cell.idup, x,y); // Don't bother grabbing these
 					break;
 				default:
 					break;
 				}
 			}
 		}
+		// Explosions should be reinforced (BROKEN)
 		if( "explosion" in state.objects )
 			writeln("EXPLOSION!!!!!!!!");
+
 		return StateActions(state, actions);
 	}
 
@@ -398,24 +466,31 @@ public:
 			return dist;
 		}
 	}+/
+
+	/// Helper type to avoid verbosity (StateNodes are templated on states and actions).
 	alias PagiStateNode = StateNode!(PerceivedState,Action);
+
+	/// This is the State Graph.
+	///
+	/// StateNodes can be accessed by PerceivedState objects.
 	PagiStateNode[const(PerceivedState)] mStateNodes;
 
+	/// Learn and plan with the specified task.
+	///
+	/// Information is saved between calls and across tasks.
 	bool run(string taskname)
 	{
-		/+struct PerceivedState
-		{
-			const(Action)[] actions;
-			this(const(Action)[] a) { actions=a; }
-		}+/
-
-
+		// Delay a bit before loading to let PAGI Guy slow down
 		poll();
 		poll();
 		poll();
+		// Load the task!
 		loadTask(taskname);
+		// Require user input so PAGI Guy can be fixed if he spawns upside down or if he's moving too fast
 		writeln("Press enter to start");
 		stdin.readln();
+
+		// Some delay... probably not necessary with user input.
 		poll();
 		poll();
 		poll();
@@ -423,33 +498,32 @@ public:
 		poll();
 		writefln("Loaded task %s", taskname);
 
-		updateVision();
+		// Perceive the world and generate available action list
 		StateActions stateActions = perceiveWorld();
 		writefln("Found %s actions", stateActions.state.objects.length);
-		if( stateActions.state.objects.length == 0 )
+		if( stateActions.state.objects.length == 0 ) // No actions
 			return false;
 
+		// Find the node for this state, if it exists, otherwise create it
 		auto p = stateActions.state in mStateNodes;
-		writefln("P = %s", p);
 		Rebindable!PagiStateNode node = ( p ? *p : (mStateNodes[stateActions.state] = new PagiStateNode(stateActions.state, stateActions.actions)) );
 
+		// Create the planner, which operates on the graph
 		auto planner = new ActionPlanner!(PerceivedState,Action)();
 
+		// While food hasn't been eaten (the goal)
 		while(!ateApple)
 		{
+			// No actions?
 			if( stateActions.state.objects.length == 0 )
 				return false;
 
+			// Update
 			poll();
-			// Can a path be planned to the apple?
-			//   If so, follow it
-			// Otherwise:
-			//   For each available action:
-			//     What link has the highest reliability?
-			//     What link goes the "deepest"?
-			static uint numExplosions(in PerceivedState ps) { return "explosion" in ps.objects ? 1 : 0; }
+
+			// Choose an action (planned or otherwise)
 			Rebindable!(const(Action)) action = planner.nextPlannedAction(node); //pickBestAction(node);//pickGreedyAction(node,&numExplosions);
-			if( !action )
+			if( !action ) // Hmmm... shouldn't need this but too late
 			{
 				writeln("");
 				writeln("COULD NOT PICK GREEDY ACTION");
@@ -457,27 +531,28 @@ public:
 				writeln("");
 				action = pickUnknownAction(node);
 			}
-			if( !action )
+			if( !action ) // Hmmm... REALLY shouldn't need this but too late
 			{
 				writeln("================");
 				writeln("NO ACTIONS WERE PICKED (ERROR)");
 				writeln("================");
 				assert(action, "Actions were available but one could not be chosen (shouldn't happen)");
 			}
-			//auto action = actions[ uniform(0,$) ];
 
-			//trans[action] = true;
+			// Perform the action
 			action.execute(this);
 			poll();
 			poll();
 
+			// Perceive the world and generate action list
 			updateVision();
 			stateActions = perceiveWorld();
 			writefln("Found %s actions", stateActions.state.objects.length);
 
+			// Find the node for this state, if it exists, otherwise create it
 			auto p2 = stateActions.state in mStateNodes;
-			//writefln("P = %s state = %s / %s", p2, stateActions.state, mStateNodes);
 			PagiStateNode nextState = ( p2 ? *p2 : (mStateNodes[stateActions.state] = new PagiStateNode(stateActions.state, stateActions.actions)) );
+
 
 			writeln("================");
 			writefln("Entering state %s", nextState);
@@ -489,15 +564,18 @@ public:
 				//writefln("%s ? ==> %s   |   %s   |   %s", k2, k in mStateNodes, k2 in mStateNodes, stateActions.state in mStateNodes);
 			//}
 
+			// Provide feedback to the graph about what happened
 			node.feedback(action, nextState);
+
+			// New current state
 			node = nextState;
 
 
+			// Wait for user
 			//writeln("Press enter to continue");
 			//stdin.readln();
-
 		}
-		ateApple=false;
+		ateApple=false; // reset goal condition
 		return true;
 	}
 }
